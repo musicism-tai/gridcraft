@@ -698,8 +698,7 @@ fn favorite_font_row(ui: &mut egui::Ui, font: &str, selected: &mut String, favor
             }
         }
 
-        let display_name = crate::system_fonts::display_family_name(font);
-        if ui.selectable_label(selected == font, display_name).clicked() {
+        if ui.selectable_label(selected == font, font).clicked() {
             *selected = font.to_owned();
             ui.close();
         }

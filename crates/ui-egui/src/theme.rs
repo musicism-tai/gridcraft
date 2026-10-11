@@ -176,9 +176,9 @@ pub fn cell_family(name: &str, bold: bool, italic: bool) -> FontFamily {
 }
 
 /// Resolve an explicitly selected font weight to a registered egui family.
-pub fn cell_family_with_weight(name: &str, weight: Option<u16>, bold: bool, italic: bool) -> FontFamily {
+pub fn cell_family_with_weight(name: &str, _weight: Option<u16>, bold: bool, italic: bool) -> FontFamily {
     #[cfg(not(target_arch = "wasm32"))]
-    if let Some(weight) = weight {
+    if let Some(weight) = _weight {
         let style = if italic { fontdb::Style::Italic } else { fontdb::Style::Normal };
 
         let key = crate::system_fonts::face_family_key(name, weight, style);
