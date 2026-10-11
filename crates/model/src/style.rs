@@ -155,6 +155,9 @@ pub enum VertAlign {
 pub struct Font {
     pub name: String,
     pub size: f32,
+    /// Explicit OpenType weight; None preserves legacy bold behavior.
+    #[serde(default)]
+    pub weight: Option<u16>,
     pub bold: bool,
     pub italic: bool,
     pub underline: Underline,
@@ -168,6 +171,7 @@ impl Hash for Font {
     fn hash<H: Hasher>(&self, h: &mut H) {
         self.name.hash(h);
         self.size.to_bits().hash(h);
+        self.weight.hash(h);
         (self.bold, self.italic, self.underline, self.strike, self.color, self.vert).hash(h);
     }
 }
@@ -177,6 +181,7 @@ impl Default for Font {
         Font {
             name: crate::DEFAULT_FONT.into(),
             size: crate::DEFAULT_FONT_SIZE,
+            weight: None,
             bold: false,
             italic: false,
             underline: Underline::None,

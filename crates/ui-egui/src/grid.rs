@@ -558,7 +558,7 @@ fn paint_quadrant(
         }
         let st = &lk.style;
         let size = st.font.size * 96.0 / 72.0 * z;
-        let fam = theme::cell_family(&st.font.name, st.font.bold, st.font.italic);
+        let fam = theme::cell_family_with_weight(&st.font.name, st.font.weight, st.font.bold, st.font.italic);
         let font = FontId::new(size, fam);
         let avail_w = rect.right() - text_left;
         let (text, ncolor, numeric, fill_char) = display_text(wb, sh, c, &v, st, avail_w / z.max(0.1) * z, char_w);
@@ -1626,7 +1626,7 @@ fn in_cell_editor(app: &mut SheetApp, ui: &mut egui::Ui, geo: &Geo, sh: &Sheet, 
     };
     let st = wb.styles.get(sh.style_id(cell)).clone();
     let size = st.font.size * 96.0 / 72.0 * geo.z;
-    let font = FontId::new(size, theme::cell_family(&st.font.name, st.font.bold, st.font.italic));
+    let font = FontId::new(size, theme::cell_family_with_weight(&st.font.name, st.font.weight, st.font.bold, st.font.italic));
     let text_w = ui.painter().layout_no_wrap(ed.text.clone(), font.clone(), Color32::BLACK).size().x;
     let lines = ed.text.lines().count().max(1) as f32 + if ed.text.ends_with('\n') { 1.0 } else { 0.0 };
     let w = (text_w + 14.0).max(rect.width()).min(geo.cells.right() - rect.left());

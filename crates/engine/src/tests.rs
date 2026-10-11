@@ -111,6 +111,86 @@ fn formatting_and_styles() {
 }
 
 #[test]
+fn font_weight_command_roundtrip() {
+    let mut s = s();
+
+    // A newly created cell uses the legacy font behavior.
+    let cell = s.execute("cell.get", json!({"cell": "A1"})).unwrap();
+    assert!(cell["style"]["font"]["weight"].is_null());
+
+    // Explicitly select PingFang's Light weight.
+    s.execute("home.fontWeight", json!({"range": "A1", "weight": 200})).unwrap();
+    let cell = s.execute("cell.get", json!({"cell": "A1"})).unwrap();
+    assert_eq!(cell["style"]["font"]["weight"], 200);
+
+    // Undo should restore the previous format.
+    s.execute("edit.undo", json!({})).unwrap();
+    let cell = s.execute("cell.get", json!({"cell": "A1"})).unwrap();
+    assert!(cell["style"]["font"]["weight"].is_null());
+
+    // Explicit null clears a previously selected weight.
+    s.execute("home.fontWeight", json!({"range": "A1", "weight": 250})).unwrap();
+    s.execute("home.fontWeight", json!({"range": "A1", "weight": null})).unwrap();
+    let cell = s.execute("cell.get", json!({"cell": "A1"})).unwrap();
+    assert!(cell["style"]["font"]["weight"].is_null());
+
+    // Invalid values must not silently change the document.
+    assert!(s.execute("home.fontWeight", json!({"range": "A1", "weight": 1001})).is_err());
+}
+
+#[test]
+fn font_face_command_roundtrip() {
+    let mut s = s();
+
+    let before = s.execute("cell.get", json!({"cell": "A1"})).unwrap()["style"]["font"].clone();
+
+    // Select an exact font face in one operation.
+    s.execute(
+        "home.fontFace",
+        json!({
+            "range": "A1",
+            "name": "PingFang TC",
+            "weight": 200,
+            "italic": false
+        }),
+    )
+    .unwrap();
+
+    let font = s.execute("cell.get", json!({"cell": "A1"})).unwrap()["style"]["font"].clone();
+
+    assert_eq!(font["name"], "PingFang TC");
+    assert_eq!(font["weight"], 200);
+    assert_eq!(font["italic"], false);
+    assert_eq!(font["bold"], false);
+
+    // A single undo must restore the complete original font.
+    s.execute("edit.undo", json!({})).unwrap();
+
+    let restored = s.execute("cell.get", json!({"cell": "A1"})).unwrap()["style"]["font"].clone();
+
+    assert_eq!(restored, before);
+
+    // Verify the italic and bold attributes of another face.
+    s.execute(
+        "home.fontFace",
+        json!({
+            "range": "A1",
+            "name": "Arial",
+            "weight": 700,
+            "italic": true
+        }),
+    )
+    .unwrap();
+
+    let font = s.execute("cell.get", json!({"cell": "A1"})).unwrap()["style"]["font"].clone();
+
+    assert_eq!(font["name"], "Arial");
+    assert_eq!(font["weight"], 700);
+    assert_eq!(font["italic"], true);
+    assert_eq!(font["bold"], true);
+}
+
+#[test]
 fn tables_and_structured_refs() {
     let mut s = s();
     s.execute("range.setValues", json!({"range": "A1", "values": [["Item", "Qty"], ["x", 2], ["y", 5]]})).unwrap();

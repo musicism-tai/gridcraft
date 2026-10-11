@@ -684,12 +684,7 @@ fn home(app: &mut SheetApp, ui: &mut Ui) {
     });
 }
 
-fn favorite_font_row(
-    ui: &mut egui::Ui,
-    font: &str,
-    selected: &mut String,
-    favorites: &mut Vec<String>,
-) {
+fn favorite_font_row(ui: &mut egui::Ui, font: &str, selected: &mut String, favorites: &mut Vec<String>) {
     ui.horizontal(|ui| {
         let starred = favorites.iter().any(|f| f == font);
 
@@ -711,6 +706,7 @@ fn favorite_font_row(
     });
 }
 
+#[cfg(target_arch = "wasm32")]
 fn font_combo(app: &mut SheetApp, ui: &mut Ui, st: &Style) {
     use std::collections::BTreeMap;
 
@@ -733,27 +729,18 @@ fn font_combo(app: &mut SheetApp, ui: &mut Ui, st: &Style) {
     let mut favorites = app.ui.favorite_fonts.clone();
 
     // Keep the existing family groups, but classify each member.
-    let mut sections:
-        BTreeMap<usize, BTreeMap<String, Vec<String>>> =
-        BTreeMap::new();
+    let mut sections: BTreeMap<usize, BTreeMap<String, Vec<String>>> = BTreeMap::new();
 
     for (family, members) in crate::system_fonts::grouped_families() {
         for font in members {
             let section = crate::system_fonts::language_section(font);
-            sections
-                .entry(section)
-                .or_default()
-                .entry(family.clone())
-                .or_default()
-                .push(font.clone());
+            sections.entry(section).or_default().entry(family.clone()).or_default().push(font.clone());
         }
     }
 
     egui::ComboBox::from_id_salt("font_name")
         .width(170.0)
-        .close_behavior(
-            egui::PopupCloseBehavior::CloseOnClickOutside
-        )
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .selected_text(&name)
         .show_ui(ui, |ui| {
             ui.set_min_width(280.0);
@@ -761,9 +748,7 @@ fn font_combo(app: &mut SheetApp, ui: &mut Ui, st: &Style) {
             if !favorites.is_empty() {
                 ui.label("★ Favorites");
                 for font in favorites.clone() {
-                    favorite_font_row(
-                        ui, &font, &mut name, &mut favorites
-                    );
+                    favorite_font_row(ui, &font, &mut name, &mut favorites);
                 }
                 ui.separator();
             }
@@ -782,17 +767,11 @@ fn font_combo(app: &mut SheetApp, ui: &mut Ui, st: &Style) {
 
                 for (family, members) in groups {
                     if members.len() == 1 {
-                        favorite_font_row(
-                            ui, &members[0],
-                            &mut name, &mut favorites
-                        );
+                        favorite_font_row(ui, &members[0], &mut name, &mut favorites);
                     } else {
                         ui.collapsing(family, |ui| {
                             for font in members {
-                                favorite_font_row(
-                                    ui, font,
-                                    &mut name, &mut favorites
-                                );
+                                favorite_font_row(ui, font, &mut name, &mut favorites);
                             }
                         });
                     }
@@ -803,10 +782,128 @@ fn font_combo(app: &mut SheetApp, ui: &mut Ui, st: &Style) {
 
     app.ui.favorite_fonts = favorites;
 
-    if name != before
-        && crate::system_fonts::register(ui.ctx(), &name)
-    {
+    if name != before && crate::system_fonts::register(ui.ctx(), &name) {
         act(app, "home.fontName", json!({"name": name}));
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn font_group_row(
+    ui: &mut egui::Ui,
+    group: &crate::system_fonts::FontFamilyGroup,
+    current: &gridcraft_engine::model::Font,
+    favorites: &mut Vec<String>,
+    choice: &mut Option<(String, u16, bool)>,
+) {
+    let family = &group.family;
+    let starred = favorites.contains(family);
+
+    ui.horizontal(|ui| {
+        let star = if starred { "★" } else { "☆" };
+
+        if ui.small_button(star).clicked() {
+            if starred {
+                favorites.retain(|f| f != family);
+            } else {
+                favorites.push(family.clone());
+            }
+        }
+
+        if group.faces.len() == 1 {
+            let face = &group.faces[0];
+            let selected = current.name == *family && current.weight == Some(face.weight) && current.italic == (face.style != fontdb::Style::Normal);
+
+            if ui.selectable_label(selected, &group.display_name).clicked() {
+                *choice = Some((family.clone(), face.weight, face.style != fontdb::Style::Normal));
+                ui.close();
+            }
+        } else {
+            let title = format!("{} ({})", group.display_name, group.faces.len());
+
+            ui.push_id(("font-family", family), |ui| {
+                ui.collapsing(title, |ui| {
+                    for face in &group.faces {
+                        let italic = face.style != fontdb::Style::Normal;
+                        let selected = current.name == *family && current.weight == Some(face.weight) && current.italic == italic;
+
+                        if ui.selectable_label(selected, &face.subfamily).clicked() {
+                            *choice = Some((family.clone(), face.weight, italic));
+                            ui.close();
+                        }
+                    }
+                });
+            });
+        }
+    });
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn font_combo(app: &mut SheetApp, ui: &mut Ui, st: &Style) {
+    let groups = crate::system_fonts::font_family_groups();
+    let mut favorites = app.ui.favorite_fonts.clone();
+    let mut choice: Option<(String, u16, bool)> = None;
+    let mut legacy_name = st.font.name.clone();
+
+    egui::ComboBox::from_id_salt("font_name")
+        .width(170.0)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .selected_text(crate::system_fonts::display_family_name(&st.font.name))
+        .show_ui(ui, |ui| {
+            ui.set_min_width(280.0);
+
+            if !favorites.is_empty() {
+                ui.label("★ Favorites");
+
+                for name in favorites.clone() {
+                    if let Some(group) = groups.iter().find(|group| group.family == name) {
+                        ui.push_id("favorite-fonts", |ui| {
+                            font_group_row(ui, group, &st.font, &mut favorites, &mut choice);
+                        });
+                    } else {
+                        // Preserve older favorites whose names do not
+                        // match a newly discovered canonical family.
+                        favorite_font_row(ui, &name, &mut legacy_name, &mut favorites);
+                    }
+                }
+
+                ui.separator();
+            }
+
+            let mut previous_section = None;
+
+            for group in groups {
+                if previous_section.is_some() && previous_section != Some(group.section) {
+                    ui.separator();
+                }
+
+                previous_section = Some(group.section);
+
+                ui.push_id("all-fonts", |ui| {
+                    font_group_row(ui, group, &st.font, &mut favorites, &mut choice);
+                });
+            }
+        });
+
+    app.ui.favorite_fonts = favorites;
+
+    if let Some((family, weight, italic)) = choice {
+        let style = if italic { fontdb::Style::Italic } else { fontdb::Style::Normal };
+
+        // Store the selection immediately; font activation is deferred.
+        act(
+            app,
+            "home.fontFace",
+            json!({
+                "name": family,
+                "weight": weight,
+                "italic": italic,
+            }),
+        );
+
+        crate::system_fonts::register_face(ui.ctx(), &family, weight, style);
+    } else if legacy_name != st.font.name {
+        act(app, "home.fontName", json!({"name": legacy_name}));
+        crate::system_fonts::register(ui.ctx(), &legacy_name);
     }
 }
 

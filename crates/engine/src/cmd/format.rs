@@ -52,6 +52,16 @@ pub fn specs() -> Vec<CommandSpec> {
             |st| st.font.vert == VertAlign::Subscript,
             |st, v| st.font.vert = if v { VertAlign::Subscript } else { VertAlign::Baseline }
         )),
+        cmd!("home.fontWeight", "Font Weight", ["Home", "Font"], None, "{range?, weight: 1..1000 | null}", has_doc, font_weight),
+        cmd!(
+            "home.fontFace",
+            "Font Face",
+            ["Home", "Font"],
+            None,
+            "{range?, name: string, weight: 1..1000 | null, italic: bool}",
+            has_doc,
+            font_face
+        ),
         cmd!("home.fontName", "Font", ["Home", "Font"], None, "{range?, name: \"Calibri\"}", has_doc, font_name),
         cmd!("home.fontSize", "Font Size", ["Home", "Font"], None, "{range?, size: 11}", has_doc, font_size),
         cmd!("home.increaseFontSize", "Increase Font Size", ["Home", "Font"], Some("Cmd+Shift+>"), "{range?}", has_doc, |s, p| step_font(s, p, true)),
@@ -295,6 +305,41 @@ fn underline(s: &mut Session, p: &Json) -> Result<Json> {
 fn font_name(s: &mut Session, p: &Json) -> Result<Json> {
     let Some(name) = str_param(p, "name").map(str::to_string) else { return Err(bad("home.fontName", "missing `name`")) };
     apply_style(s, p, |st| st.font.name = name.clone())
+}
+
+fn parse_font_weight(p: &Json) -> Result<Option<u16>> {
+    match p.get("weight") {
+        Some(Json::Null) => Ok(None),
+        Some(value) => {
+            let weight = value
+                .as_u64()
+                .filter(|weight| (1..=1000).contains(weight))
+                .ok_or_else(|| bad("home.fontWeight", "weight must be an integer from 1 to 1000 or null"))?;
+            Ok(Some(weight as u16))
+        }
+        None => Err(bad("home.fontWeight", "missing `weight`")),
+    }
+}
+
+fn font_weight(s: &mut Session, p: &Json) -> Result<Json> {
+    let weight = parse_font_weight(p)?;
+    apply_style(s, p, |st| st.font.weight = weight)
+}
+
+/// Set family, weight and italic style in one undoable operation.
+fn font_face(s: &mut Session, p: &Json) -> Result<Json> {
+    let name = str_param(p, "name").filter(|name| !name.trim().is_empty()).ok_or_else(|| bad("home.fontFace", "missing or empty `name`"))?.to_owned();
+
+    let weight = parse_font_weight(p)?;
+
+    let italic = bool_param(p, "italic").ok_or_else(|| bad("home.fontFace", "missing or invalid `italic`"))?;
+
+    apply_style(s, p, |st| {
+        st.font.name = name.clone();
+        st.font.weight = weight;
+        st.font.italic = italic;
+        st.font.bold = weight.is_some_and(|value| value >= 700);
+    })
 }
 
 fn font_size(s: &mut Session, p: &Json) -> Result<Json> {
@@ -1075,6 +1120,26 @@ mod tests {
         assert_eq!(adjust_decimals("0.0", &v, -1), "0");
         assert_eq!(adjust_decimals("#,##0.00;[Red]-#,##0.00", &v, 1), "#,##0.000;[Red]-#,##0.000");
         assert_eq!(adjust_decimals("0%", &v, 1), "0.0%");
+    }
+
+    #[test]
+    fn font_weight_parameters() {
+        assert_eq!(parse_font_weight(&json!({"weight": 200})).unwrap(), Some(200));
+        assert_eq!(parse_font_weight(&json!({"weight": 250})).unwrap(), Some(250));
+        assert_eq!(parse_font_weight(&json!({"weight": 600})).unwrap(), Some(600));
+        assert_eq!(parse_font_weight(&json!({"weight": null})).unwrap(), None);
+
+        for params in [
+            json!({}),
+            json!({"weight": 0}),
+            json!({"weight": 1001}),
+            json!({"weight": -1}),
+            json!({"weight": 200.5}),
+            json!({"weight": "200"}),
+            json!({"weight": true}),
+        ] {
+            assert!(parse_font_weight(&params).is_err(), "Expected invalid weight: {params}");
+        }
     }
 
     #[test]

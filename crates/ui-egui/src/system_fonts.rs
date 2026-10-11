@@ -55,14 +55,8 @@ fn face_subfamily(db: &fontdb::Database, id: fontdb::ID) -> String {
         let face = ttf_parser::Face::parse(bytes, index).ok()?;
         let names = face.names();
 
-        for name_id in [
-            ttf_parser::name_id::TYPOGRAPHIC_SUBFAMILY,
-            ttf_parser::name_id::SUBFAMILY,
-        ] {
-            if let Some(value) = names.clone().into_iter()
-                .filter(|name| name.name_id == name_id)
-                .find_map(|name| name.to_string())
-            {
+        for name_id in [ttf_parser::name_id::TYPOGRAPHIC_SUBFAMILY, ttf_parser::name_id::SUBFAMILY] {
+            if let Some(value) = names.clone().into_iter().filter(|name| name.name_id == name_id).find_map(|name| name.to_string()) {
                 return Some(value);
             }
         }
@@ -83,10 +77,7 @@ pub fn font_faces() -> &'static [FontFace] {
         let mut faces = Vec::new();
 
         for face in db.faces() {
-            let Some((family, _)) = face.families.iter()
-                .find(|(name, _)| !name.trim().is_empty()
-                    && !name.trim_start().starts_with('.'))
-            else {
+            let Some((family, _)) = face.families.iter().find(|(name, _)| !name.trim().is_empty() && !name.trim_start().starts_with('.')) else {
                 continue;
             };
 
@@ -101,7 +92,8 @@ pub fn font_faces() -> &'static [FontFace] {
         }
 
         faces.sort_by(|a, b| {
-            a.family.cmp(&b.family)
+            a.family
+                .cmp(&b.family)
                 .then(a.weight.cmp(&b.weight))
                 .then_with(|| {
                     let rank = |style: fontdb::Style| match style {
@@ -119,6 +111,40 @@ pub fn font_faces() -> &'static [FontFace] {
     })
 }
 
+/// A font family containing its installed faces.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Debug)]
+pub struct FontFamilyGroup {
+    pub family: String,
+    pub display_name: String,
+    pub section: usize,
+    pub faces: Vec<FontFace>,
+}
+
+/// Group installed faces by family, preserving weight and style order.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn font_family_groups() -> &'static [FontFamilyGroup] {
+    static GROUPS: OnceLock<Vec<FontFamilyGroup>> = OnceLock::new();
+
+    GROUPS.get_or_init(|| {
+        use std::collections::BTreeMap;
+
+        let mut by_family: BTreeMap<String, Vec<FontFace>> = BTreeMap::new();
+
+        for face in font_faces() {
+            by_family.entry(face.family.clone()).or_default().push(face.clone());
+        }
+
+        let mut groups: Vec<FontFamilyGroup> = by_family
+            .into_iter()
+            .map(|(family, faces)| FontFamilyGroup { display_name: display_family_name(&family), section: language_section(&family), family, faces })
+            .collect();
+
+        groups.sort_by(|a, b| a.section.cmp(&b.section).then(a.display_name.cmp(&b.display_name)).then(a.family.cmp(&b.family)));
+
+        groups
+    })
+}
 
 /// Display a localized family name without changing its stored identity.
 #[cfg(not(target_arch = "wasm32"))]
@@ -149,9 +175,7 @@ pub fn display_family_name(family: &str) -> String {
             continue;
         }
 
-        if let Some((name, _)) = face.families.iter()
-            .find(|(_, language)| format!("{language:?}") == preferred)
-        {
+        if let Some((name, _)) = face.families.iter().find(|(_, language)| format!("{language:?}") == preferred) {
             result = name.clone();
             break;
         }
@@ -166,39 +190,24 @@ pub fn display_family_name(family: &str) -> String {
 pub fn grouped_families() -> &'static [(String, Vec<String>)] {
     use std::collections::{BTreeMap, BTreeSet};
 
-    static GROUPS: OnceLock<Vec<(String, Vec<String>)>> =
-        OnceLock::new();
+    static GROUPS: OnceLock<Vec<(String, Vec<String>)>> = OnceLock::new();
 
     GROUPS.get_or_init(|| {
-        let mut groups: BTreeMap<String, BTreeSet<String>> =
-            BTreeMap::new();
+        let mut groups: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
         for face in database().faces() {
             // Each face may have localized aliases.
             // Keep one selectable family name per face.
-            let Some((name, _)) = face.families.iter().find(
-                |(name, _)| {
-                    !name.trim().is_empty()
-                        && !name.trim_start().starts_with('.')
-                }
-            ) else {
+            let Some((name, _)) = face.families.iter().find(|(name, _)| !name.trim().is_empty() && !name.trim_start().starts_with('.')) else {
                 continue;
             };
 
             let group = font_series_name(name);
 
-            groups
-                .entry(group)
-                .or_default()
-                .insert(name.clone());
+            groups.entry(group).or_default().insert(name.clone());
         }
 
-        groups
-            .into_iter()
-            .map(|(group, names)| {
-                (group, names.into_iter().collect())
-            })
-            .collect()
+        groups.into_iter().map(|(group, names)| (group, names.into_iter().collect())).collect()
     })
 }
 
@@ -209,68 +218,80 @@ pub fn grouped_families() -> &'static [(String, Vec<String>)] {
 pub fn language_section(name: &str) -> usize {
     let n = name.to_lowercase();
 
-    if [
-        "pingfang sc", "kaiti sc", "songti sc",
-        "heiti sc", "yuanti sc", "xingkai sc",
-        "cjk sc", "noto sans sc", "noto serif sc",
-    ].iter().any(|p| n.contains(p)) {
+    if ["pingfang sc", "kaiti sc", "songti sc", "heiti sc", "yuanti sc", "xingkai sc", "cjk sc", "noto sans sc", "noto serif sc"]
+        .iter()
+        .any(|p| n.contains(p))
+    {
         return 2;
     }
 
     if [
-        "pingfang", "mingliu", "dfkai", "biaukai",
-        "hanwang", "kaiti tc", "songti tc",
-        "heiti tc", "yuanti tc", "xingkai tc",
-        "cjk tc", "cjk hk", "noto sans tc",
+        "pingfang",
+        "mingliu",
+        "dfkai",
+        "biaukai",
+        "hanwang",
+        "kaiti tc",
+        "songti tc",
+        "heiti tc",
+        "yuanti tc",
+        "xingkai tc",
+        "cjk tc",
+        "cjk hk",
+        "noto sans tc",
         "noto serif tc",
-    ].iter().any(|p| n.contains(p)) {
+    ]
+    .iter()
+    .any(|p| n.contains(p))
+    {
         return 1;
     }
 
-    if [
-        "hiragino", "yu gothic", "yu mincho",
-        "osaka", "cjk jp", "noto sans jp",
-        "noto serif jp",
-    ].iter().any(|p| n.contains(p)) {
+    if ["hiragino", "yu gothic", "yu mincho", "osaka", "cjk jp", "noto sans jp", "noto serif jp"].iter().any(|p| n.contains(p)) {
         return 3;
     }
 
-    if [
-        "apple sd gothic", "nanum", "malgun",
-        "batang", "dotum", "cjk kr",
-        "noto sans kr", "noto serif kr",
-    ].iter().any(|p| n.contains(p)) {
+    if ["apple sd gothic", "nanum", "malgun", "batang", "dotum", "cjk kr", "noto sans kr", "noto serif kr"].iter().any(|p| n.contains(p)) {
         return 4;
     }
 
-    for (script, words) in [
-        (5, &["arabic", "kufi", "naskh"][..]),
-        (6, &["hebrew"][..]),
-        (7, &["thai", "thonburi"][..]),
-        (8, &["devanagari"][..]),
-    ] {
+    for (script, words) in [(5, &["arabic", "kufi", "naskh"][..]), (6, &["hebrew"][..]), (7, &["thai", "thonburi"][..]), (8, &["devanagari"][..])] {
         if words.iter().any(|word| n.contains(word)) {
             return script;
         }
     }
 
-    if [
-        "noto ", "ethiopic", "tibetan", "armenian",
-        "bengali", "tamil", "telugu", "khmer",
-        "lao", "myanmar", "georgian",
-    ].iter().any(|p| n.contains(p)) {
+    if ["noto ", "ethiopic", "tibetan", "armenian", "bengali", "tamil", "telugu", "khmer", "lao", "myanmar", "georgian"].iter().any(|p| n.contains(p))
+    {
         return 9;
     }
 
     if [
-        "arial", "helvetica", "times new roman",
-        "georgia", "verdana", "tahoma",
-        "calibri", "aptos", "cambria",
-        "courier", "consolas", "garamond",
-        "trebuchet", "futura", "avenir",
-        "baskerville", "palatino", "menlo",
-        "monaco", "gill sans", "optima",
-    ].iter().any(|p| n.starts_with(p)) {
+        "arial",
+        "helvetica",
+        "times new roman",
+        "georgia",
+        "verdana",
+        "tahoma",
+        "calibri",
+        "aptos",
+        "cambria",
+        "courier",
+        "consolas",
+        "garamond",
+        "trebuchet",
+        "futura",
+        "avenir",
+        "baskerville",
+        "palatino",
+        "menlo",
+        "monaco",
+        "gill sans",
+        "optima",
+    ]
+    .iter()
+    .any(|p| n.starts_with(p))
+    {
         return 0;
     }
 
@@ -282,11 +303,7 @@ pub fn language_section(name: &str) -> usize {
 #[cfg(not(target_arch = "wasm32"))]
 fn font_series_name(name: &str) -> String {
     // Group Noto typeface series while retaining each real family.
-    for (prefix, series) in [
-        ("Noto Sans", "Noto Sans"),
-        ("Noto Serif", "Noto Serif"),
-        ("Noto Mono", "Noto Mono"),
-    ] {
+    for (prefix, series) in [("Noto Sans", "Noto Sans"), ("Noto Serif", "Noto Serif"), ("Noto Mono", "Noto Mono")] {
         if name == prefix || name.starts_with(&format!("{prefix} ")) {
             return series.to_owned();
         }
@@ -351,6 +368,51 @@ pub fn load(name: &str) -> Option<egui::FontData> {
     })
 }
 
+/// Runtime egui family key for a specific installed face.
+/// This key must never be stored in the document.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn face_family_key(family: &str, weight: u16, style: fontdb::Style) -> String {
+    let style = match style {
+        fontdb::Style::Normal => "normal",
+        fontdb::Style::Italic => "italic",
+        fontdb::Style::Oblique => "oblique",
+    };
+    format!("installed-face:{family}:{weight}:{style}")
+}
+
+/// Find an installed face by its stable font properties.
+/// Returns None rather than silently substituting another weight.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn find_font_face(family: &str, weight: u16, style: fontdb::Style) -> Option<&'static FontFace> {
+    font_faces().iter().find(|face| face.family == family && face.weight == weight && face.style == style)
+}
+
+/// Load the exact installed face, including its collection index.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_face(face: &FontFace) -> Option<egui::FontData> {
+    let db = database();
+
+    // Face IDs are valid only for this process's shared font database.
+    let installed = db.face(face.id)?;
+
+    if installed.post_script_name != face.post_script_name || !installed.families.iter().any(|(name, _)| name == &face.family) {
+        return None;
+    }
+
+    db.with_face_data(face.id, |bytes, index| {
+        let mut font = egui::FontData::from_owned(bytes.to_vec());
+        font.index = index;
+
+        // Preserve the existing special rendering fix.
+        if face.family.eq_ignore_ascii_case("DFKai-SB") {
+            font.tweak.hinting = Some(true);
+            font.tweak.hinting_target = egui::epaint::text::HintingTarget::Mono;
+        }
+
+        font
+    })
+}
+
 #[cfg(target_arch = "wasm32")]
 pub fn families() -> &'static [String] {
     &[]
@@ -376,6 +438,41 @@ pub fn is_registered(name: &str) -> bool {
 
 #[cfg(target_arch = "wasm32")]
 pub fn is_registered(_name: &str) -> bool {
+    false
+}
+
+/// Register an exact font face for use in subsequent frames.
+/// Returns false when the requested face is not installed.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn register_face(ctx: &egui::Context, family: &str, weight: u16, style: fontdb::Style) -> bool {
+    use egui::epaint::text::{FontInsert, FontPriority, InsertFontFamily};
+
+    let key = face_family_key(family, weight, style);
+
+    if is_registered(&key) {
+        return true;
+    }
+
+    if pending().lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(&key) {
+        return false;
+    }
+
+    let Some(face) = find_font_face(family, weight, style) else {
+        return false;
+    };
+    let Some(data) = load_face(face) else {
+        return false;
+    };
+
+    ctx.add_font(FontInsert::new(
+        &key,
+        data,
+        vec![InsertFontFamily { family: egui::FontFamily::Name(key.clone().into()), priority: FontPriority::Highest }],
+    ));
+
+    pending().lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(key);
+
+    ctx.request_repaint();
     false
 }
 
@@ -432,116 +529,51 @@ pub fn activate_pending() {
 #[cfg(target_arch = "wasm32")]
 pub fn activate_pending() {}
 
+// TODO: Some installed families expose distinct faces with identical
+// weight and style metadata (e.g. Yuanti TC Regular/Bold/Light all 400).
+// Family + Weight + Style cannot identify those faces uniquely.
+// Preserve this known limitation until exact face identity is supported.
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
-mod font_metadata_tests {
+mod font_selection_tests {
+    use super::*;
+
     #[test]
-    fn inspect_hiragino_subfamilies() {
-        let db = super::database();
-        let mut faces = Vec::new();
+    fn families_and_faces_are_ordered() {
+        let groups = font_family_groups();
 
-        for face in db.faces() {
-            let Some((family, _)) = face.families.first() else {
-                continue;
-            };
-            if family != "Hiragino Sans" {
-                continue;
-            }
+        assert!(
+            groups.windows(2).all(|pair| {
+                (pair[0].section, &pair[0].display_name, &pair[0].family) <= (pair[1].section, &pair[1].display_name, &pair[1].family)
+            })
+        );
 
-            let subfamily = db
-                .with_face_data(face.id, |bytes, index| {
-                    let font = ttf_parser::Face::parse(bytes, index).ok()?;
-                    let names = font.names();
-
-                    let get = |id| {
-                        names.clone()
-                            .into_iter()
-                            .filter(|name| name.name_id == id)
-                            .find_map(|name| name.to_string())
-                    };
-
-                    get(ttf_parser::name_id::TYPOGRAPHIC_SUBFAMILY)
-                        .or_else(|| get(ttf_parser::name_id::SUBFAMILY))
-                })
-                .flatten()
-                .unwrap_or_else(|| "Unknown".to_owned());
-
-            faces.push((face.weight.0, subfamily));
+        for group in groups {
+            assert!(!group.faces.is_empty());
+            assert!(group.faces.iter().all(|face| face.family == group.family));
+            assert!(group.faces.windows(2).all(|pair| { pair[0].weight <= pair[1].weight }));
         }
-
-        faces.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
-
-        for (weight, subfamily) in &faces {
-            println!("{subfamily} (weight: {weight})");
-        }
-
-        assert!(!faces.is_empty(), "No Hiragino Sans fonts found");
-        assert!(faces.windows(2).all(|w| w[0].0 <= w[1].0));
     }
-}
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod font_face_model_tests {
     #[test]
-    fn inspect_font_face_model() {
-        let faces = super::font_faces();
+    fn exact_face_lookup_and_loading() {
+        // Avoid assuming that any specific font is installed.
+        for face in font_faces().iter().take(10) {
+            let matches = font_faces()
+                .iter()
+                .filter(|candidate| candidate.family == face.family && candidate.weight == face.weight && candidate.style == face.style)
+                .count();
 
-        for family in ["Arial", "PingFang TC", "Hiragino Sans"] {
-            println!("\n=== {family} ===");
-
-            for face in faces.iter().filter(|f| f.family == family) {
-                println!(
-                    "{} | {} | weight {}",
-                    face.family,
-                    face.subfamily,
-                    face.weight
-                );
-            }
-        }
-
-        assert!(!faces.is_empty(), "No installed fonts discovered");
-        assert!(faces.windows(2).all(|pair| {
-            pair[0].family < pair[1].family
-                || (pair[0].family == pair[1].family
-                    && pair[0].weight <= pair[1].weight)
-        }));
-    }
-}
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod localized_font_name_tests {
-    #[test]
-    fn inspect_localized_family_names() {
-        let db = super::database();
-
-        for target in [
-            "DFKai-SB",
-            "PingFang TC",
-            "Hiragino Sans",
-            "Arial",
-        ] {
-            println!("\n=== {target} ===");
-
-            let mut found = false;
-
-            for face in db.faces() {
-                if !face.families.iter().any(|(name, _)| name == target) {
-                    continue;
-                }
-
-                if found {
-                    continue;
-                }
-
-                found = true;
-
-                for (name, language) in &face.families {
-                    println!("  {:?} => {}", language, name);
-                }
+            // Skip ambiguous metadata: different faces can share
+            // Family + Weight + Style.
+            if matches != 1 {
+                continue;
             }
 
-            if !found {
-                println!("  Not installed or not found");
-            }
+            let found = find_font_face(&face.family, face.weight, face.style).expect("Installed face should be found");
+
+            assert_eq!(found.id, face.id);
+            assert!(load_face(found).is_some(), "Unable to load installed face: {}", face.family);
         }
     }
 }

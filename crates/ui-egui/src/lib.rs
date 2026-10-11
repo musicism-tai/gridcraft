@@ -387,6 +387,29 @@ impl SheetApp {
         if self.session.active().is_none() {
             self.session.new_workbook();
         }
+
+        // Register explicitly selected font weights before painting.
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(doc) = self.session.active() {
+            use std::collections::HashSet;
+
+            let mut seen = HashSet::new();
+
+            for (_, style) in doc.wb.styles.iter() {
+                let font = &style.font;
+                let Some(weight) = font.weight else {
+                    continue;
+                };
+
+                let face_style = if font.italic { fontdb::Style::Italic } else { fontdb::Style::Normal };
+
+                let key = crate::system_fonts::face_family_key(&font.name, weight, face_style);
+
+                if seen.insert(key) {
+                    crate::system_fonts::register_face(ctx, &font.name, weight, face_style);
+                }
+            }
+        }
     }
 
     pub fn raw_input_hook(&mut self, raw: &mut egui::RawInput) {

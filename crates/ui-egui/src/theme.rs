@@ -175,6 +175,21 @@ pub fn cell_family(name: &str, bold: bool, italic: bool) -> FontFamily {
     )
 }
 
+/// Resolve an explicitly selected font weight to a registered egui family.
+pub fn cell_family_with_weight(name: &str, weight: Option<u16>, bold: bool, italic: bool) -> FontFamily {
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(weight) = weight {
+        let style = if italic { fontdb::Style::Italic } else { fontdb::Style::Normal };
+
+        let key = crate::system_fonts::face_family_key(name, weight, style);
+        if crate::system_fonts::is_registered(&key) {
+            return FontFamily::Name(key.into());
+        }
+    }
+
+    cell_family(name, bold, italic)
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn try_load(paths: &[(&str, u32)]) -> Option<FontData> {
     for (p, index) in paths {
@@ -338,13 +353,8 @@ pub fn font_definitions() -> FontDefinitions {
         let key = "system-cjk-fallback".to_string();
         fonts.font_data.insert(key.clone(), Arc::new(data));
 
-        for role in [
-            UI, UI_BOLD, CELL, CELL_BOLD,
-            CELL_ITALIC, CELL_BOLD_ITALIC, SERIF, MONO,
-        ] {
-            if let Some(chain) =
-                fonts.families.get_mut(&FontFamily::Name(role.into()))
-            {
+        for role in [UI, UI_BOLD, CELL, CELL_BOLD, CELL_ITALIC, CELL_BOLD_ITALIC, SERIF, MONO] {
+            if let Some(chain) = fonts.families.get_mut(&FontFamily::Name(role.into())) {
                 let pos = chain.len().min(1);
                 chain.insert(pos, key.clone());
             }
