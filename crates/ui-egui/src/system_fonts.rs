@@ -77,6 +77,82 @@ pub fn grouped_families() -> &'static [(String, Vec<String>)] {
     })
 }
 
+/// Heuristic primary writing-system section for the font picker.
+/// This is not a claim about every language supported by a font.
+/// Primary script section for display only.
+/// Heuristic classification; this does not represent full language coverage.
+pub fn language_section(name: &str) -> usize {
+    let n = name.to_lowercase();
+
+    if [
+        "pingfang sc", "kaiti sc", "songti sc",
+        "heiti sc", "yuanti sc", "xingkai sc",
+        "cjk sc", "noto sans sc", "noto serif sc",
+    ].iter().any(|p| n.contains(p)) {
+        return 2;
+    }
+
+    if [
+        "pingfang", "mingliu", "dfkai", "biaukai",
+        "hanwang", "kaiti tc", "songti tc",
+        "heiti tc", "yuanti tc", "xingkai tc",
+        "cjk tc", "cjk hk", "noto sans tc",
+        "noto serif tc",
+    ].iter().any(|p| n.contains(p)) {
+        return 1;
+    }
+
+    if [
+        "hiragino", "yu gothic", "yu mincho",
+        "osaka", "cjk jp", "noto sans jp",
+        "noto serif jp",
+    ].iter().any(|p| n.contains(p)) {
+        return 3;
+    }
+
+    if [
+        "apple sd gothic", "nanum", "malgun",
+        "batang", "dotum", "cjk kr",
+        "noto sans kr", "noto serif kr",
+    ].iter().any(|p| n.contains(p)) {
+        return 4;
+    }
+
+    for (script, words) in [
+        (5, &["arabic", "kufi", "naskh"][..]),
+        (6, &["hebrew"][..]),
+        (7, &["thai", "thonburi"][..]),
+        (8, &["devanagari"][..]),
+    ] {
+        if words.iter().any(|word| n.contains(word)) {
+            return script;
+        }
+    }
+
+    if [
+        "noto ", "ethiopic", "tibetan", "armenian",
+        "bengali", "tamil", "telugu", "khmer",
+        "lao", "myanmar", "georgian",
+    ].iter().any(|p| n.contains(p)) {
+        return 9;
+    }
+
+    if [
+        "arial", "helvetica", "times new roman",
+        "georgia", "verdana", "tahoma",
+        "calibri", "aptos", "cambria",
+        "courier", "consolas", "garamond",
+        "trebuchet", "futura", "avenir",
+        "baskerville", "palatino", "menlo",
+        "monaco", "gill sans", "optima",
+    ].iter().any(|p| n.starts_with(p)) {
+        return 0;
+    }
+
+    // Don't mistake an English family name for Latin-script coverage.
+    10
+}
+
 /// Higher-level UI series are not always encoded in font metadata.
 #[cfg(not(target_arch = "wasm32"))]
 fn font_series_name(name: &str) -> String {
@@ -230,3 +306,50 @@ pub fn activate_pending() {
 
 #[cfg(target_arch = "wasm32")]
 pub fn activate_pending() {}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod font_metadata_tests {
+    #[test]
+    fn inspect_hiragino_subfamilies() {
+        let db = super::database();
+        let mut faces = Vec::new();
+
+        for face in db.faces() {
+            let Some((family, _)) = face.families.first() else {
+                continue;
+            };
+            if family != "Hiragino Sans" {
+                continue;
+            }
+
+            let subfamily = db
+                .with_face_data(face.id, |bytes, index| {
+                    let font = ttf_parser::Face::parse(bytes, index).ok()?;
+                    let names = font.names();
+
+                    let get = |id| {
+                        names.clone()
+                            .into_iter()
+                            .filter(|name| name.name_id == id)
+                            .find_map(|name| name.to_string())
+                    };
+
+                    get(ttf_parser::name_id::TYPOGRAPHIC_SUBFAMILY)
+                        .or_else(|| get(ttf_parser::name_id::SUBFAMILY))
+                })
+                .flatten()
+                .unwrap_or_else(|| "Unknown".to_owned());
+
+            faces.push((face.weight.0, subfamily));
+        }
+
+        faces.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+
+        for (weight, subfamily) in &faces {
+            println!("{subfamily} (weight: {weight})");
+        }
+
+        assert!(!faces.is_empty(), "No Hiragino Sans fonts found");
+        assert!(faces.windows(2).all(|w| w[0].0 <= w[1].0));
+    }
+}

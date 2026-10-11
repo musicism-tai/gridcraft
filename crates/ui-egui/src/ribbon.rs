@@ -711,9 +711,42 @@ fn favorite_font_row(
 }
 
 fn font_combo(app: &mut SheetApp, ui: &mut Ui, st: &Style) {
+    use std::collections::BTreeMap;
+
+    const SECTIONS: [&str; 11] = [
+        "Latin",
+        "Traditional Chinese",
+        "Simplified Chinese",
+        "Japanese",
+        "Korean",
+        "Arabic",
+        "Hebrew",
+        "Thai",
+        "Devanagari",
+        "Other Scripts",
+        "Unclassified",
+    ];
+
     let mut name = st.font.name.clone();
     let before = name.clone();
     let mut favorites = app.ui.favorite_fonts.clone();
+
+    // Keep the existing family groups, but classify each member.
+    let mut sections:
+        BTreeMap<usize, BTreeMap<String, Vec<String>>> =
+        BTreeMap::new();
+
+    for (family, members) in crate::system_fonts::grouped_families() {
+        for font in members {
+            let section = crate::system_fonts::language_section(font);
+            sections
+                .entry(section)
+                .or_default()
+                .entry(family.clone())
+                .or_default()
+                .push(font.clone());
+        }
+    }
 
     egui::ComboBox::from_id_salt("font_name")
         .width(170.0)
@@ -722,39 +755,48 @@ fn font_combo(app: &mut SheetApp, ui: &mut Ui, st: &Style) {
         )
         .selected_text(&name)
         .show_ui(ui, |ui| {
-            ui.set_min_width(250.0);
+            ui.set_min_width(280.0);
 
             if !favorites.is_empty() {
-                ui.label("Favorites");
-
-                // Snapshot the list so stars can be toggled safely.
-                let pinned = favorites.clone();
-
-                for font in &pinned {
+                ui.label("★ Favorites");
+                for font in favorites.clone() {
                     favorite_font_row(
-                        ui, font, &mut name, &mut favorites
+                        ui, &font, &mut name, &mut favorites
                     );
                 }
-
                 ui.separator();
             }
 
-            for (family, members) in
-                crate::system_fonts::grouped_families()
-            {
-                if members.len() == 1 {
-                    favorite_font_row(
-                        ui, &members[0], &mut name, &mut favorites
-                    );
-                } else {
-                    ui.collapsing(family, |ui| {
-                        for font in members {
-                            favorite_font_row(
-                                ui, font, &mut name, &mut favorites
-                            );
-                        }
-                    });
+            for (section_id, title) in SECTIONS.iter().enumerate() {
+                let Some(groups) = sections.get(&section_id) else {
+                    continue;
+                };
+
+                ui.label(
+                    egui::RichText::new(*title)
+                        .strong()
+                        .color(ui.visuals().weak_text_color())
+                );
+                ui.separator();
+
+                for (family, members) in groups {
+                    if members.len() == 1 {
+                        favorite_font_row(
+                            ui, &members[0],
+                            &mut name, &mut favorites
+                        );
+                    } else {
+                        ui.collapsing(family, |ui| {
+                            for font in members {
+                                favorite_font_row(
+                                    ui, font,
+                                    &mut name, &mut favorites
+                                );
+                            }
+                        });
+                    }
                 }
+                ui.add_space(6.0);
             }
         });
 
