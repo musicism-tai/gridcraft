@@ -703,7 +703,8 @@ fn favorite_font_row(
             }
         }
 
-        if ui.selectable_label(selected == font, font).clicked() {
+        let display_name = crate::system_fonts::display_family_name(font);
+        if ui.selectable_label(selected == font, display_name).clicked() {
             *selected = font.to_owned();
             ui.close();
         }
@@ -767,17 +768,17 @@ fn font_combo(app: &mut SheetApp, ui: &mut Ui, st: &Style) {
                 ui.separator();
             }
 
-            for (section_id, title) in SECTIONS.iter().enumerate() {
+            let mut has_previous_section = false;
+            for section_id in 0..SECTIONS.len() {
                 let Some(groups) = sections.get(&section_id) else {
                     continue;
                 };
 
-                ui.label(
-                    egui::RichText::new(*title)
-                        .strong()
-                        .color(ui.visuals().weak_text_color())
-                );
-                ui.separator();
+                // Separate non-empty script sections without language labels.
+                if has_previous_section {
+                    ui.separator();
+                }
+                has_previous_section = true;
 
                 for (family, members) in groups {
                     if members.len() == 1 {

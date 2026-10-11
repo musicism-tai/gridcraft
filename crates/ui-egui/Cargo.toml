@@ -17,6 +17,7 @@ serde_json = { workspace = true }
 log = { workspace = true }
 image = { workspace = true }
 fontdb = "0.24.0"
+ttf-parser = "0.25.1"
 
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot"] }
